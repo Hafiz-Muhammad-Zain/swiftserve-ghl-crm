@@ -1,0 +1,109 @@
+{
+  "name": "Facebook Lead Ads → GHL Contact",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "facebook-lead",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "webhook-node",
+      "name": "Webhook — Facebook Lead",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 1,
+      "position": [240, 300],
+      "webhookId": "facebook-lead-swiftserve"
+    },
+    {
+      "parameters": {
+        "jsCode": "const body = $input.first().json.body || $input.first().json;\nlet lead = {};\ntry {\n  const entry = body.entry?.[0];\n  const change = entry?.changes?.[0];\n  const value = change?.value;\n  if (value?.leads?.[0]) {\n    const rawLead = value.leads[0];\n    const fieldData = rawLead.field_data || [];\n    fieldData.forEach(field => { lead[field.name] = field.values?.[0] || ''; });\n    lead.lead_id = rawLead.id;\n    lead.form_id = value.form_id;\n    lead.page_id = value.page_id;\n    lead.ad_id = value.ad_id || '';\n    lead.campaign_id = value.campaign_id || '';\n  } else { lead = body; }\n} catch(e) { lead = body; }\nconst firstName = lead.first_name || lead.full_name?.split(' ')[0] || '';\nconst lastName = lead.last_name || lead.full_name?.split(' ').slice(1).join(' ') || '';\nconst email = lead.email || lead.email_address || '';\nconst phone = lead.phone_number || lead.phone || '';\nreturn [{ json: { firstName, lastName, email, phone, source: 'Facebook Lead Ads', adId: lead.ad_id || '', campaignId: lead.campaign_id || '', formId: lead.form_id || '', leadId: lead.lead_id || '' } }];"
+      },
+      "id": "parse-node",
+      "name": "Parse Facebook Lead",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [460, 300]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://services.leadconnectorhq.com/contacts/",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {"name": "Authorization", "value": "Bearer YOUR_GHL_API_KEY"},
+            {"name": "Version", "value": "2021-07-28"},
+            {"name": "Content-Type", "value": "application/json"}
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"firstName\": \"{{ $json.firstName }}\",\n  \"lastName\": \"{{ $json.lastName }}\",\n  \"email\": \"{{ $json.email }}\",\n  \"phone\": \"{{ $json.phone }}\",\n  \"locationId\": \"YOUR_LOCATION_ID\",\n  \"source\": \"Facebook Lead Ads\",\n  \"tags\": [\"facebook-lead\", \"new-lead\"]\n}",
+        "options": {}
+      },
+      "id": "ghl-create-contact",
+      "name": "Create GHL Contact",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [680, 300]
+    },
+    {
+      "parameters": {
+        "jsCode": "const response = $input.first().json;\nconst contactId = response.contact?.id || response.id || '';\nif (!contactId) throw new Error('GHL contact creation failed: ' + JSON.stringify(response));\nreturn [{ json: { contactId, firstName: $('Parse Facebook Lead').first().json.firstName, email: $('Parse Facebook Lead').first().json.email } }];"
+      },
+      "id": "extract-contact-id",
+      "name": "Extract Contact ID",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [900, 300]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://services.leadconnectorhq.com/opportunities/",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {"name": "Authorization", "value": "Bearer YOUR_GHL_API_KEY"},
+            {"name": "Version", "value": "2021-07-28"},
+            {"name": "Content-Type", "value": "application/json"}
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"pipelineId\": \"YOUR_PIPELINE_ID\",\n  \"pipelineStageId\": \"YOUR_NEW_LEAD_STAGE_ID\",\n  \"locationId\": \"YOUR_LOCATION_ID\",\n  \"name\": \"{{ $json.firstName }} — Facebook Lead\",\n  \"contactId\": \"{{ $json.contactId }}\",\n  \"source\": \"Facebook Lead Ads\",\n  \"status\": \"open\"\n}",
+        "options": {}
+      },
+      "id": "create-opportunity",
+      "name": "Add to Pipeline — New Lead",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [1120, 300]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={\"status\": \"ok\", \"message\": \"Lead received\"}",
+        "options": {}
+      },
+      "id": "respond-webhook",
+      "name": "Respond to Facebook",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1,
+      "position": [1340, 300]
+    }
+  ],
+  "connections": {
+    "Webhook — Facebook Lead": {"main": [[{"node": "Parse Facebook Lead", "type": "main", "index": 0}]]},
+    "Parse Facebook Lead": {"main": [[{"node": "Create GHL Contact", "type": "main", "index": 0}]]},
+    "Create GHL Contact": {"main": [[{"node": "Extract Contact ID", "type": "main", "index": 0}]]},
+    "Extract Contact ID": {"main": [[{"node": "Add to Pipeline — New Lead", "type": "main", "index": 0}]]},
+    "Add to Pipeline — New Lead": {"main": [[{"node": "Respond to Facebook", "type": "main", "index": 0}]]}
+  },
+  "active": false,
+  "settings": {"executionOrder": "v1"},
+  "meta": {
+    "description": "Receives Facebook Lead Ads webhook → parses lead fields → creates GHL contact → adds to pipeline at New Lead stage. Set Facebook webhook URL to: https://n8n.zainsverse.de/webhook/facebook-lead. Replace YOUR_GHL_API_KEY and YOUR_LOCATION_ID before importing."
+  }
+}

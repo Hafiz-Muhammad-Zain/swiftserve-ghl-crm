@@ -1,0 +1,107 @@
+{
+  "name": "GHL Hot Lead → WhatsApp Message",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "ghl-hot-lead-whatsapp",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2.1,
+      "position": [-400, 0],
+      "id": "webhook-hot-lead",
+      "name": "Webhook — GHL Hot Lead"
+    },
+    {
+      "parameters": {
+        "jsCode": "const body = $input.first().json.body || $input.first().json;\nconst firstName = body.first_name || body.name?.split(' ')[0] || 'there';\nconst phone = body.phone || body.phone_number || '';\nconst score = body.ai_score || '';\nconst recommendation = body.ai_recommendation || 'Follow up immediately';\nlet cleanPhone = phone.replace(/[\\s\\-\\(\\)]/g, '');\nif (cleanPhone.startsWith('00')) { cleanPhone = '+' + cleanPhone.slice(2); }\nelse if (cleanPhone.startsWith('0') && !cleanPhone.startsWith('+')) { cleanPhone = '+49' + cleanPhone.slice(1); }\nelse if (!cleanPhone.startsWith('+')) { cleanPhone = '+' + cleanPhone; }\nif (!cleanPhone || cleanPhone.length < 8) throw new Error('Invalid phone number: ' + phone);\nreturn [{ json: { firstName, phone: cleanPhone, score, recommendation, contactId: body.id || body.contact_id || '' } }];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [-180, 0],
+      "id": "parse-hot-lead",
+      "name": "Parse Hot Lead Data"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "=https://graph.facebook.com/v19.0/YOUR_PHONE_NUMBER_ID/messages",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {"name": "Authorization", "value": "Bearer YOUR_WHATSAPP_API_TOKEN"},
+            {"name": "Content-Type", "value": "application/json"}
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"messaging_product\": \"whatsapp\",\n  \"to\": \"{{ $json.phone }}\",\n  \"type\": \"text\",\n  \"text\": {\n    \"body\": \"Hey {{ $json.firstName }}! This is Zain from SwiftServe — I just saw your inquiry come through and wanted to reach out personally.\\n\\nYou mentioned you're looking to automate your agency's lead follow-up — that's exactly what we specialise in.\\n\\nWould you be open to a quick 15-min call this week? I'll map out exactly what your system should look like before we start anything.\\n\\nJust reply YES and I'll send you a booking link right away.\"\n  }\n}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.3,
+      "position": [60, 0],
+      "id": "send-whatsapp",
+      "name": "Send WhatsApp Message"
+    },
+    {
+      "parameters": {
+        "jsCode": "const response = $input.first().json;\nif (response.error) throw new Error('WhatsApp API error: ' + JSON.stringify(response.error));\nconst messageId = response.messages?.[0]?.id || 'unknown';\nreturn [{ json: { success: true, messageId, phone: $('Parse Hot Lead Data').first().json.phone, contactId: $('Parse Hot Lead Data').first().json.contactId } }];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [280, 0],
+      "id": "check-response",
+      "name": "Check WhatsApp Response"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "=https://services.leadconnectorhq.com/contacts/{{ $json.contactId }}/tags",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {"name": "Authorization", "value": "Bearer YOUR_GHL_API_KEY"},
+            {"name": "Version", "value": "2021-07-28"},
+            {"name": "Content-Type", "value": "application/json"}
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\"tags\": [\"whatsapp-sent\"]}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.3,
+      "position": [500, 0],
+      "id": "tag-contact",
+      "name": "Tag Contact — whatsapp-sent"
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={\"status\": \"ok\"}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.5,
+      "position": [720, 0],
+      "id": "respond",
+      "name": "Respond to GHL"
+    }
+  ],
+  "connections": {
+    "Webhook — GHL Hot Lead": {"main": [[{"node": "Parse Hot Lead Data", "type": "main", "index": 0}]]},
+    "Parse Hot Lead Data": {"main": [[{"node": "Send WhatsApp Message", "type": "main", "index": 0}]]},
+    "Send WhatsApp Message": {"main": [[{"node": "Check WhatsApp Response", "type": "main", "index": 0}]]},
+    "Check WhatsApp Response": {"main": [[{"node": "Tag Contact — whatsapp-sent", "type": "main", "index": 0}]]},
+    "Tag Contact — whatsapp-sent": {"main": [[{"node": "Respond to GHL", "type": "main", "index": 0}]]}
+  },
+  "active": false,
+  "settings": {"executionOrder": "v1"},
+  "meta": {
+    "description": "Triggered by GHL workflow when AI Tier = Hot. Sends personalised WhatsApp message via Meta Cloud API, tags GHL contact as whatsapp-sent. Replace YOUR_PHONE_NUMBER_ID, YOUR_WHATSAPP_API_TOKEN, YOUR_GHL_API_KEY before importing. GHL webhook URL: https://n8n.zainsverse.de/webhook/ghl-hot-lead-whatsapp"
+  }
+}

@@ -1,0 +1,99 @@
+{
+  "name": "ghl contact pipeline",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "52cafb1c-4da4-4d03-bada-e78c1c39ce14",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2.1,
+      "position": [-432, -48],
+      "id": "5deaec09-6e60-4141-985d-142683fb595d",
+      "name": "Webhook",
+      "webhookId": "52cafb1c-4da4-4d03-bada-e78c1c39ce14"
+    },
+    {
+      "parameters": {
+        "modelId": {
+          "__rl": true,
+          "value": "gpt-4o-mini",
+          "mode": "list",
+          "cachedResultName": "GPT-4O-MINI"
+        },
+        "responses": {
+          "values": [
+            {
+              "content": "=You are a lead scoring AI for a marketing agency CRM. Score this lead from 0-100 and classify them.\n\nLead data:\nName: {{ $json.body.name }}\nEmail: {{ $json.body.email }}\nPhone: {{ $json.body.phone }}\nMarketing Budget: {{ $json.body.marketing_budget }}\nUrgency: {{ $json.body.urgency }}\n\nScoring rules:\n\nBudget \"$5000+\" = +30 points\nBudget \"$1000-5000\" = +20 points\nBudget \"under $1000\" = +5 points\nBudget missing or empty = +0 points\nUrgency mentions \"now\", \"urgent\", \"immediately\", \"this week\" = +30 points\nUrgency mentions \"month\", \"soon\" = +15 points\nUrgency missing or empty = +0 points\nValid phone provided = +20 points\nValid email provided = +10 points\nStart base score at 10\nTier rules:\n\nHot = score 70-100\nWarm = score 40-69\nCold = score 0-39\nReturn raw JSON only. No markdown. No code blocks.\n{\"score\": 75, \"tier\": \"Hot\", \"recommendation\": \"Call within 1 hour\"}"
+            }
+          ]
+        },
+        "builtInTools": {},
+        "options": {}
+      },
+      "type": "@n8n/n8n-nodes-langchain.openAi",
+      "typeVersion": 2.1,
+      "position": [-224, -48],
+      "id": "31c31cde-8a87-4c97-8652-b40a2da78b23",
+      "name": "Message a model"
+    },
+    {
+      "parameters": {
+        "jsCode": "const data = $input.first().json;\nconst raw = data.output[0].content[0].text;\nconst clean = raw.replace(/```json\\n?/g, '').replace(/```\\n?/g, '').trim();\nconst parsed = JSON.parse(clean);\n\nreturn {\n  score: parsed.score,\n  tier: parsed.tier,\n  recommendation: parsed.recommendation,\n  contact_id: $('Webhook').first().json.body.id\n};\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [96, -48],
+      "id": "fbfa897c-7f73-45a4-983f-bd85e6b7003e",
+      "name": "Code in JavaScript"
+    },
+    {
+      "parameters": {
+        "respondWith": "text",
+        "responseBody": "ok",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.5,
+      "position": [480, -48],
+      "id": "8f450ba0-526d-4a84-a652-908355f90cce",
+      "name": "Respond to Webhook"
+    },
+    {
+      "parameters": {
+        "method": "PUT",
+        "url": "=https://services.leadconnectorhq.com/contacts/{{ $json.contact_id }}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {"name": "Content-Type", "value": "application/json"},
+            {"name": "Version", "value": "2021-07-28"},
+            {"name": "locationId", "value": "CVwKtPqeecFe8Xwh6gHF"}
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"customFields\": [\n    {\"key\": \"ai_score\", \"field_value\": \"{{ $json.score }}\"},\n    {\"key\": \"ai_tier\", \"field_value\": \"{{ $json.tier }}\"},\n    {\"key\": \"ai_recommendation\", \"field_value\": \"{{ $json.recommendation }}\"}\n  ]\n}\n",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.3,
+      "position": [304, -48],
+      "id": "df55891a-d519-4df4-aa7e-0872822886d4",
+      "name": "HTTP Request"
+    }
+  ],
+  "connections": {
+    "Webhook": {"main": [[{"node": "Message a model", "type": "main", "index": 0}]]},
+    "Message a model": {"main": [[{"node": "Code in JavaScript", "type": "main", "index": 0}]]},
+    "Code in JavaScript": {"main": [[{"node": "HTTP Request", "type": "main", "index": 0}]]},
+    "HTTP Request": {"main": [[{"node": "Respond to Webhook", "type": "main", "index": 0}]]}
+  },
+  "active": true,
+  "settings": {"executionOrder": "v1"},
+  "meta": {
+    "description": "LIVE WORKFLOW — GHL fires webhook on new contact → OpenAI GPT-4o-mini scores lead 0-100 → score, tier, and recommendation written back to GHL contact custom fields via v2 API."
+  }
+}
